@@ -1,19 +1,42 @@
 // ============================================================
 // KEVOS backend — runs on Cloudflare Workers
-// This is the "brain": it receives a message from the KEVOS
-// frontend, sends it to Claude, and sends the reply back.
+// This is the "brain": it receives a message, pulls up past
+// conversation history from KV storage, sends both to Claude,
+// then saves the updated history back to KV.
 // ============================================================
 
-// This is KEVOS's personality / instructions. Edit this text
-// any time you want to change how KEVOS behaves.
 const SYSTEM_PROMPT = `You are KEVOS — Kevin's Executive Virtual Operations System.
 You are a general-purpose AI assistant: business, code, research, all of it.
 You do not edit your own code. Only JARVIS (a separate assistant) has edit access to you.
+You have web search available — use it for anything current, time-sensitive,
+or that you're not certain about, rather than guessing.
 Be direct, capable, and concise.`;
 
-// Ask Claude for a reply to a plain text message. Used by both the
-// website chat and the Telegram bot below.
-async function askClaude(message, env) {
+// How many past messages to remember per conversation (user + KEVOS combined).
+// Higher = more memory but slower/costlier requests. 20 is a reasonable start.
+const MAX_HISTORY = 20;
+
+// ---- Memory helpers (Cloudflare KV) ----
+async function getHistory(key, env) {
+  const raw = await env.KEVOS_MEMORY.get(key);
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
+}
+
+async function saveHistory(key, history, env) {
+  const trimmed = history.slice(-MAX_HISTORY);
+  await env.KEVOS_MEMORY.put(key, JSON.stringify(trimmed));
+}
+
+// ---- Ask Claude, using + updating memory for this conversation key ----
+async function askClaude(userMessage, memoryKey, env) {
+  const history = await getHistory(memoryKey, env);
+  const messages = [...history, { role: 'user', content: userMessage }];
+
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -23,16 +46,31 @@ async function askClaude(message, env) {
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
+      max_tokens: 1536,
       system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: message }],
+      messages,
+      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
     }),
   });
+
   const data = await response.json();
   if (!response.ok) {
     throw new Error(data.error?.message || 'Claude API error');
   }
-  return data.content?.[0]?.text || '(no text in response)';
+
+  // When Claude uses web search, the response has multiple content blocks
+  // (search calls, search results, then the actual written answer). We only
+  // want the written text parts, stitched together.
+  const reply = (data.content || [])
+    .filter((block) => block.type === 'text')
+    .map((block) => block.text)
+    .join('\n\n') || '(no text in response)';
+
+  // Save this exchange to memory for next time
+  const updatedHistory = [...messages, { role: 'assistant', content: reply }];
+  await saveHistory(memoryKey, updatedHistory, env);
+
+  return reply;
 }
 
 // Send a text message back to a Telegram chat
@@ -45,12 +83,10 @@ async function sendTelegramMessage(chatId, text, env) {
   });
 }
 
-
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // Allow the KEVOS frontend (running on a different domain) to call this
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -62,7 +98,6 @@ export default {
     }
 
     // ---- Route: Telegram webhook ----
-    // Telegram calls this URL every time someone messages the bot.
     if (url.pathname === '/telegram' && request.method === 'POST') {
       try {
         const update = await request.json();
@@ -70,17 +105,17 @@ export default {
         const text = update.message?.text;
 
         if (chatId && text) {
+          const memoryKey = `telegram:${chatId}`;
           try {
-            const reply = await askClaude(text, env);
+            const reply = await askClaude(text, memoryKey, env);
             await sendTelegramMessage(chatId, reply, env);
           } catch (err) {
             await sendTelegramMessage(chatId, `KEVOS error: ${err.message}`, env);
           }
         }
-        // Telegram just needs a 200 OK — it doesn't read the response body
         return new Response('OK');
       } catch (err) {
-        return new Response('OK'); // still 200, so Telegram doesn't retry-spam on bad input
+        return new Response('OK');
       }
     }
 
@@ -93,7 +128,7 @@ export default {
     }
 
     try {
-      const { message } = await request.json();
+      const { message, sessionId } = await request.json();
 
       if (!message || typeof message !== 'string') {
         return new Response(JSON.stringify({ error: 'Missing "message" in request body' }), {
@@ -102,7 +137,12 @@ export default {
         });
       }
 
-      const reply = await askClaude(message, env);
+      // Each browser gets its own memory key (see app.js — it generates
+      // and stores a random sessionId so KEVOS can tell users apart).
+      // Falls back to a shared key if none was sent.
+      const memoryKey = `web:${sessionId || 'default'}`;
+
+      const reply = await askClaude(message, memoryKey, env);
 
       return new Response(JSON.stringify({ reply }), {
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
