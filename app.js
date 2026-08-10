@@ -120,7 +120,7 @@ document.getElementById('resetBtn').addEventListener('click', () => {
 // This is the ONE line to change once the Cloudflare Worker (KEVOS's
 // brain) is deployed. Right now it's empty, so KEVOS just logs an
 // honest "not connected" message instead of pretending to think.
-const KEVOS_BACKEND_URL = ''; // <-- paste your Cloudflare Worker URL here later
+const KEVOS_BACKEND_URL = 'https://kevos-backend.margohanna333.workers.dev/';
 
 async function sendToKevos(message) {
   if (!KEVOS_BACKEND_URL) {
