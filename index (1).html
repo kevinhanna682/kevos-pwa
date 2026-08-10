@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>KEVOS</title>
+  <meta name="description" content="KEVOS — Kevin's Executive Virtual Operations System" />
+  <meta name="theme-color" content="#07080a" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="hud">
+
+    <!-- Top status bar -->
+    <header class="topbar">
+      <div class="topbar__left">
+        <span class="dot" id="statusDot"></span>
+        <span class="topbar__label">KEVOS</span>
+      </div>
+      <div class="topbar__right">
+        <span id="clock">--:--:--</span>
+        <span class="sep">•</span>
+        <span id="linkState" class="pending">LINK PENDING</span>
+      </div>
+    </header>
+
+    <!-- System info ticker -->
+    <div class="ticker">
+      <div class="ticker__track">
+        MEMORY: NOT CONFIGURED &nbsp;//&nbsp; BACKEND: NOT CONNECTED &nbsp;//&nbsp; AUTH: LOCAL ONLY &nbsp;//&nbsp; STATUS: SHELL MODE &nbsp;//&nbsp; MEMORY: NOT CONFIGURED &nbsp;//&nbsp; BACKEND: NOT CONNECTED &nbsp;//&nbsp; AUTH: LOCAL ONLY &nbsp;//&nbsp; STATUS: SHELL MODE &nbsp;//&nbsp;
+      </div>
+    </div>
+
+    <div class="layout">
+
+      <!-- Center hero: particle sphere -->
+      <main class="hero">
+        <canvas id="sphere"></canvas>
+        <div class="hero__label">
+          <div class="hero__title">K·E·V·O·S</div>
+          <div class="hero__subtitle">Kevin's Executive Virtual Operations System</div>
+        </div>
+      </main>
+
+      <!-- Left column: log + composer -->
+      <aside class="panel panel--log">
+        <div class="panel__header">SYSTEM LOG</div>
+        <div class="feed" id="feed">
+          <div class="logline logline--system">
+            <span class="logline__meta">SYSTEM // <span class="logtime"></span></span>
+            <span class="logline__body">Shell online. No backend connected — nothing here is thinking yet.</span>
+          </div>
+        </div>
+        <form class="composer" id="composer" autocomplete="off">
+          <input
+            id="input"
+            class="composer__input"
+            type="text"
+            placeholder="Type a command, Kevin..."
+          />
+          <button type="submit" class="composer__send" aria-label="Send">▶</button>
+        </form>
+      </aside>
+
+      <!-- Bottom-left column: status / diagnostics / controls -->
+      <aside class="panel panel--status">
+        <div class="panel__header">STATUS: <span class="status-value">SHELL MODE</span></div>
+
+        <div class="section">
+          <div class="section__title">DIAGNOSTICS</div>
+          <div class="row"><span>FRONTEND</span><span class="ok">ONLINE</span></div>
+          <div class="row"><span>BACKEND</span><span class="off">NOT CONNECTED</span></div>
+          <div class="row"><span>SESSION TIME</span><span id="sessionTime">00:00:00</span></div>
+        </div>
+
+        <div class="section">
+          <div class="section__title">SUBSYSTEMS</div>
+          <div class="row"><span>WEB SEARCH</span><span class="off">OFFLINE</span></div>
+          <div class="row"><span>MESSAGING</span><span class="off">OFFLINE</span></div>
+          <div class="row"><span>TELEGRAM LINK</span><span class="off">OFFLINE</span></div>
+          <div class="row"><span>VOICE OUT</span><span class="off">OFFLINE</span></div>
+          <div class="row"><span>WAKE WORD</span><span class="off">OFFLINE</span></div>
+        </div>
+
+        <div class="section">
+          <div class="section__title">CONTROLS</div>
+          <div class="btn-grid">
+            <button class="btn" disabled title="Not built yet">VOICE OUT</button>
+            <button class="btn" disabled title="Not built yet">WAKE WORD</button>
+            <button class="btn" disabled title="Not built yet">TRANSCRIPT</button>
+            <button class="btn" id="resetBtn">RESET LOG</button>
+          </div>
+        </div>
+
+      </aside>
+
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
