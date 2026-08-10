@@ -1,0 +1,117 @@
+// ============================================================
+// KEVOS backend — runs on Cloudflare Workers
+// This is the "brain": it receives a message from the KEVOS
+// frontend, sends it to Claude, and sends the reply back.
+// ============================================================
+
+// This is KEVOS's personality / instructions. Edit this text
+// any time you want to change how KEVOS behaves.
+const SYSTEM_PROMPT = `You are KEVOS — Kevin's Executive Virtual Operations System.
+You are a general-purpose AI assistant: business, code, research, all of it.
+You do not edit your own code. Only JARVIS (a separate assistant) has edit access to you.
+Be direct, capable, and concise.`;
+
+// Ask Claude for a reply to a plain text message. Used by both the
+// website chat and the Telegram bot below.
+async function askClaude(message, env) {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1024,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: message }],
+    }),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error?.message || 'Claude API error');
+  }
+  return data.content?.[0]?.text || '(no text in response)';
+}
+
+// Send a text message back to a Telegram chat
+async function sendTelegramMessage(chatId, text, env) {
+  const url = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`;
+  await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, text }),
+  });
+}
+
+
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+
+    // Allow the KEVOS frontend (running on a different domain) to call this
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    };
+
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { headers: corsHeaders });
+    }
+
+    // ---- Route: Telegram webhook ----
+    // Telegram calls this URL every time someone messages the bot.
+    if (url.pathname === '/telegram' && request.method === 'POST') {
+      try {
+        const update = await request.json();
+        const chatId = update.message?.chat?.id;
+        const text = update.message?.text;
+
+        if (chatId && text) {
+          try {
+            const reply = await askClaude(text, env);
+            await sendTelegramMessage(chatId, reply, env);
+          } catch (err) {
+            await sendTelegramMessage(chatId, `KEVOS error: ${err.message}`, env);
+          }
+        }
+        // Telegram just needs a 200 OK — it doesn't read the response body
+        return new Response('OK');
+      } catch (err) {
+        return new Response('OK'); // still 200, so Telegram doesn't retry-spam on bad input
+      }
+    }
+
+    // ---- Route: website chat ----
+    if (request.method !== 'POST') {
+      return new Response(JSON.stringify({ error: 'Use POST' }), {
+        status: 405,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
+    }
+
+    try {
+      const { message } = await request.json();
+
+      if (!message || typeof message !== 'string') {
+        return new Response(JSON.stringify({ error: 'Missing "message" in request body' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        });
+      }
+
+      const reply = await askClaude(message, env);
+
+      return new Response(JSON.stringify({ reply }), {
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
+    } catch (err) {
+      return new Response(JSON.stringify({ error: err.message }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
+    }
+  },
+};
