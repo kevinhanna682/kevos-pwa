@@ -592,6 +592,17 @@ function stopSpeaking() {
 if (currentAudio) { currentAudio.pause(); currentAudio = null; }
 }
 
+function speakWithBrowserVoice(text) {
+return new Promise((resolve) => {
+if (!('speechSynthesis' in window)) { resolve(); return; }
+window.speechSynthesis.cancel();
+const utter = new SpeechSynthesisUtterance(text);
+utter.onend = resolve;
+utter.onerror = resolve;
+window.speechSynthesis.speak(utter);
+});
+}
+
 async function speak(text) {
 if (!voiceOutEnabled) return;
 stopSpeaking();
@@ -602,8 +613,12 @@ headers: { 'Content-Type': 'application/json', 'x-kevos-key': KEVOS_APP_KEY },
 body: JSON.stringify({ text, stability: ttsStability, similarityBoost: ttsSimilarity }),
 });
 if (!res.ok) {
-const err = await res.json().catch(() => ({}));
-logLine('error', `Voice playback failed: ${err.error || res.status}`);
+// ElevenLabs failed — usage limit hit, key issue, or their service is
+// down. Rather than going silent, fall back to the browser's built-in
+// voice so KEVOS still talks. Logged as 'system', not 'error', since
+// this is expected/handled behavior, not something broken.
+logLine('system', 'ElevenLabs unavailable (usage limit or error) — using backup voice.');
+await speakWithBrowserVoice(text);
 return;
 }
 const blob = await res.blob();
@@ -625,7 +640,9 @@ audio.onerror = () => { currentAudio = null; ttsAnalyser = null; URL.revokeObjec
 audio.play().catch(() => resolve());
 });
 } catch (err) {
-logLine('error', `Voice playback error: ${err.message}`);
+// Network failure reaching our backend at all — same fallback applies.
+logLine('system', 'Voice service unreachable — using backup voice.');
+await speakWithBrowserVoice(text);
 }
 }
 voiceOutBtn.addEventListener('click', () => {
