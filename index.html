@@ -208,16 +208,16 @@ SETTINGS
 <button class="settings__close" id="settingsClose">✕</button>
 </div>
 <div class="settings__section">
-<div class="settings__title">VOICE OUTPUT</div>
+<div class="settings__title">VOICE OUTPUT (ElevenLabs)</div>
 <label class="field">
-<span>Rate</span>
-<input type="range" id="rateSlider" min="0.5" max="2" step="0.1" value="1" />
-<span class="field__value" id="rateValue">1.0</span>
+<span>Stability</span>
+<input type="range" id="stabilitySlider" min="0" max="1" step="0.05" value="0.5" />
+<span class="field__value" id="stabilityValue">0.5</span>
 </label>
 <label class="field">
-<span>Pitch</span>
-<input type="range" id="pitchSlider" min="0" max="2" step="0.1" value="0.9" />
-<span class="field__value" id="pitchValue">0.9</span>
+<span>Clarity</span>
+<input type="range" id="claritySlider" min="0" max="1" step="0.05" value="0.75" />
+<span class="field__value" id="clarityValue">0.75</span>
 </label>
 </div>
 <div class="settings__section">
@@ -314,7 +314,6 @@ celebrate: { radius: 240, spin: 0.02,   glow: 1.0,  colorMix: 0.3 },
 };
 let current = { radius: 40, spin: 0.003, glow: 0.9, colorMix: 0.1 }; // starts small -> bursts on load
 function lerp(a, b, t) { return a + (b - a) * t; }
-let wordPulseUntil = 0; // brief extra shine per spoken word
 function currentState() { return document.body.dataset.state || 'idle'; }
 function drawSphere() {
 const w = canvas.width, h = canvas.height;
@@ -327,7 +326,11 @@ current.glow = lerp(current.glow, target.glow, lerpSpeed);
 current.colorMix = lerp(current.colorMix, target.colorMix, lerpSpeed);
 let micBoost = 0;
 if (currentState() === 'listening' && micAnalyser) micBoost = micVolume() * 0.35;
-let wordBoost = (currentState() === 'speaking' && Date.now() < wordPulseUntil) ? 0.3 : 0;
+// Real audio-reactive glow while KEVOS actually talks — analysing the
+// ElevenLabs audio as it plays, same technique as the mic above, just on
+// the output instead of the input. Genuinely reacts to loudness per word.
+let speakBoost = 0;
+if (currentState() === 'speaking' && ttsAnalyser) speakBoost = ttsVolume() * 0.55;
 if (!isDragging) angleY += current.spin;
 const cx = w / 2, cy = h / 2;
 const perspective = 480 * devicePixelRatio;
@@ -342,7 +345,7 @@ const mix = Math.min(1, current.colorMix);
 const r = Math.round(lerp(212, 232, mix));
 const g = Math.round(lerp(175, 226, mix));
 const b = Math.round(lerp(55, 200, mix));
-const glowLevel = Math.min(1.4, current.glow + micBoost + wordBoost);
+const glowLevel = Math.min(1.4, current.glow + micBoost + speakBoost);
 for (const p of projected) {
 const depthFactor = Math.min(1, Math.max(0.12, p.scale - 0.5));
 const dotSize = (1.1 + depthFactor * 1.8) * devicePixelRatio;
@@ -440,11 +443,13 @@ return id;
 }
 const sessionId = getSessionId();
 const KEVOS_BACKEND_URL = 'https://kevos-backend.margohanna333.workers.dev/';
+const KEVOS_TTS_URL = KEVOS_BACKEND_URL + 'tts';
+const KEVOS_APP_KEY = 'tOSWNvhdUZK7G-xikaFYsM_IXwcduVjS8SnBN9ajouQ';
 async function sendToKevos(message) {
 if (!KEVOS_BACKEND_URL) return { ok: false, text: 'No backend connected.' };
 try {
 const res = await fetch(KEVOS_BACKEND_URL, {
-method: 'POST', headers: { 'Content-Type': 'application/json', 'x-kevos-key': 'tOSWNvhdUZK7G-xikaFYsM_IXwcduVjS8SnBN9ajouQ' },
+method: 'POST', headers: { 'Content-Type': 'application/json', 'x-kevos-key': KEVOS_APP_KEY },
 body: JSON.stringify({ message, sessionId }),
 });
 if (!res.ok) throw new Error(`Backend error: ${res.status}`);
@@ -526,7 +531,7 @@ const transcript = last[0].transcript;
 const isFinal = last.isFinal;
 const state = currentState();
 if ((liveMode || wakeWordActive) && state === 'speaking') {
-window.speechSynthesis.cancel();
+stopSpeaking();
 setKevosState('listening', 'LISTENING...');
 if (isFinal && transcript.trim()) handleLiveTranscript(transcript.trim());
 return;
@@ -567,19 +572,66 @@ micBtn.title = 'Voice input not supported in this browser';
 }
 let voiceOutEnabled = true;
 const voiceOutBtn = document.getElementById('voiceOutBtn');
-let voiceRate = 1.0, voicePitch = 0.9;
-function speak(text) {
-if (!voiceOutEnabled || !('speechSynthesis' in window)) return;
-window.speechSynthesis.cancel();
-const utter = new SpeechSynthesisUtterance(text);
-utter.rate = voiceRate; utter.pitch = voicePitch;
-utter.onboundary = () => { wordPulseUntil = Date.now() + 180; };
-window.speechSynthesis.speak(utter);
+let ttsStability = 0.5, ttsSimilarity = 0.75;
+
+// Real audio analysis of KEVOS's own ElevenLabs voice as it plays — this is
+// what drives the "shines brighter while talking" glow, genuinely reactive
+// to the actual audio, not a guess.
+let currentAudio = null;
+let ttsAudioCtx = null, ttsAnalyser = null, ttsData = null;
+
+function ttsVolume() {
+if (!ttsAnalyser || !ttsData) return 0;
+ttsAnalyser.getByteFrequencyData(ttsData);
+let sum = 0;
+for (let i = 0; i < ttsData.length; i++) sum += ttsData[i];
+return Math.min(1, (sum / ttsData.length / 255) * 3.2);
+}
+
+function stopSpeaking() {
+if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+}
+
+async function speak(text) {
+if (!voiceOutEnabled) return;
+stopSpeaking();
+try {
+const res = await fetch(KEVOS_TTS_URL, {
+method: 'POST',
+headers: { 'Content-Type': 'application/json', 'x-kevos-key': KEVOS_APP_KEY },
+body: JSON.stringify({ text, stability: ttsStability, similarityBoost: ttsSimilarity }),
+});
+if (!res.ok) {
+const err = await res.json().catch(() => ({}));
+logLine('error', `Voice playback failed: ${err.error || res.status}`);
+return;
+}
+const blob = await res.blob();
+const url = URL.createObjectURL(blob);
+const audio = new Audio(url);
+currentAudio = audio;
+
+if (!ttsAudioCtx) ttsAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+const source = ttsAudioCtx.createMediaElementSource(audio);
+ttsAnalyser = ttsAudioCtx.createAnalyser();
+ttsAnalyser.fftSize = 256;
+ttsData = new Uint8Array(ttsAnalyser.frequencyBinCount);
+source.connect(ttsAnalyser);
+ttsAnalyser.connect(ttsAudioCtx.destination);
+
+await new Promise((resolve) => {
+audio.onended = () => { currentAudio = null; ttsAnalyser = null; URL.revokeObjectURL(url); resolve(); };
+audio.onerror = () => { currentAudio = null; ttsAnalyser = null; URL.revokeObjectURL(url); resolve(); };
+audio.play().catch(() => resolve());
+});
+} catch (err) {
+logLine('error', `Voice playback error: ${err.message}`);
+}
 }
 voiceOutBtn.addEventListener('click', () => {
 voiceOutEnabled = !voiceOutEnabled;
 voiceOutBtn.classList.toggle('active', voiceOutEnabled);
-if (!voiceOutEnabled) window.speechSynthesis.cancel();
+if (!voiceOutEnabled) stopSpeaking();
 });
 const composer = document.getElementById('composer');
 const input = document.getElementById('input');
@@ -590,9 +642,14 @@ if (!text) return;
 input.value = '';
 if (checkEasterEgg(text)) return;
 logLine('user', text);
+setKevosState('thinking', 'THINKING...');
 const result = await sendToKevos(text);
 logLine(result.ok ? 'system' : 'error', result.text);
-if (result.ok) speak(result.text);
+if (result.ok && voiceOutEnabled) {
+setKevosState('speaking', 'SPEAKING...');
+await speak(result.text);
+}
+setKevosState('idle');
 });
 const liveOrb = document.getElementById('liveOrb');
 let liveMode = false, liveAwaitingReply = false;
@@ -606,7 +663,7 @@ liveMode = false; liveAwaitingReply = false;
 liveOrb.classList.remove('active');
 if (!wakeWordActive) setKevosState('idle');
 if (recognition && !wakeWordActive) { try { recognition.stop(); } catch (e) {} }
-window.speechSynthesis.cancel();
+stopSpeaking();
 }
 async function handleLiveTranscript(transcript) {
 if (!transcript) { if (liveMode) startLiveListening(); return; }
@@ -616,22 +673,15 @@ logLine('user', transcript);
 setKevosState('thinking', 'THINKING...');
 const result = await sendToKevos(transcript);
 logLine(result.ok ? 'system' : 'error', result.text);
-const canSpeak = result.ok && voiceOutEnabled && 'speechSynthesis' in window;
+const canSpeak = result.ok && voiceOutEnabled;
 if (canSpeak) {
 setKevosState('speaking', 'SPEAKING... (say anything to interrupt)');
-window.speechSynthesis.cancel();
-const utter = new SpeechSynthesisUtterance(result.text);
-utter.rate = voiceRate; utter.pitch = voicePitch;
-utter.onboundary = () => { wordPulseUntil = Date.now() + 180; };
-utter.onend = () => {
+restartAlwaysOnRecognition(); // keep mic live through playback so barge-in works
+await speak(result.text); // waits for the ElevenLabs audio to actually finish
 liveAwaitingReply = false;
 if (liveMode) startLiveListening();
 else if (wakeWordActive) enterStandby();
 else setKevosState('idle');
-};
-utter.onerror = utter.onend;
-window.speechSynthesis.speak(utter);
-restartAlwaysOnRecognition();
 } else {
 liveAwaitingReply = false;
 if (liveMode) startLiveListening();
@@ -679,15 +729,15 @@ if (!liveMode) enterStandby();
 const settingsPanel = document.getElementById('settingsPanel');
 document.getElementById('settingsBtn').addEventListener('click', () => settingsPanel.classList.add('open'));
 document.getElementById('settingsClose').addEventListener('click', () => settingsPanel.classList.remove('open'));
-const rateSlider = document.getElementById('rateSlider');
-const pitchSlider = document.getElementById('pitchSlider');
-rateSlider.addEventListener('input', () => {
-voiceRate = parseFloat(rateSlider.value);
-document.getElementById('rateValue').textContent = voiceRate.toFixed(1);
+const stabilitySlider = document.getElementById('stabilitySlider');
+const claritySlider = document.getElementById('claritySlider');
+stabilitySlider.addEventListener('input', () => {
+ttsStability = parseFloat(stabilitySlider.value);
+document.getElementById('stabilityValue').textContent = ttsStability.toFixed(2);
 });
-pitchSlider.addEventListener('input', () => {
-voicePitch = parseFloat(pitchSlider.value);
-document.getElementById('pitchValue').textContent = voicePitch.toFixed(1);
+claritySlider.addEventListener('input', () => {
+ttsSimilarity = parseFloat(claritySlider.value);
+document.getElementById('clarityValue').textContent = ttsSimilarity.toFixed(2);
 });
 document.getElementById('sphereToggle').addEventListener('change', (e) => {
 canvas.style.display = e.target.checked ? '' : 'none';
