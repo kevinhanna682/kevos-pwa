@@ -525,6 +525,11 @@ if (SpeechRecognitionAPI) {
 recognition = new SpeechRecognitionAPI();
 recognition.lang = 'en-US';
 recognition.interimResults = true;
+// Continuous = true means the mic keeps actively listening across the
+// whole live/wake-word session instead of shutting off and needing to
+// restart after every utterance. That restart had a real, noticeable
+// delay — this is what was making barge-in feel slow.
+recognition.continuous = true;
 recognition.addEventListener('result', (e) => {
 const last = e.results[e.results.length - 1];
 const transcript = last[0].transcript;
