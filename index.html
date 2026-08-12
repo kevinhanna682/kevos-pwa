@@ -65,7 +65,7 @@ position: fixed; z-index: 5; display: flex; gap: 8px;
 .status-line {
 font-family: var(--font-mono), monospace; font-size: 11px; letter-spacing: 1px; color: var(--text-dim);
 display: flex; align-items: center; gap: 6px;
-background: var(--panel-bg); backdrop-filter: blur(6px);
+background: var(--panel-bg); backdrop-filter: blur(2px);
 padding: 5px 10px; border-radius: 3px; border: 1px solid var(--line);
 }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 6px 1px var(--gold-glow); animation: pulse 2.2s ease-in-out infinite; }
@@ -73,7 +73,7 @@ padding: 5px 10px; border-radius: 3px; border: 1px solid var(--line);
 #clock { color: var(--gold); }
 .icon-btn {
 width: 34px; height: 34px; border-radius: 50%;
-background: var(--panel-bg); backdrop-filter: blur(6px);
+background: var(--panel-bg); backdrop-filter: blur(2px);
 border: 1px solid var(--gold-dim); color: var(--text-dim);
 font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center;
 transition: all 0.15s ease;
@@ -82,7 +82,7 @@ transition: all 0.15s ease;
 .icon-btn.active { background: var(--gold); color: #0a0a08; border-color: var(--gold); }
 .chat-log {
 height: 160px; overflow-y: auto; font-size: 12px; line-height: 1.4;
-background: var(--panel-bg); backdrop-filter: blur(6px);
+background: var(--panel-bg); backdrop-filter: blur(2px);
 border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; margin-bottom: 6px;
 }
 .chat-log::-webkit-scrollbar { width: 4px; }
@@ -95,19 +95,19 @@ border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; margin-bot
 .logline--error .logline__meta, .logline--error .logline__body { color: var(--danger); }
 .composer { display: flex; gap: 6px; }
 .composer__input {
-flex: 1; background: var(--panel-bg); backdrop-filter: blur(6px);
+flex: 1; background: var(--panel-bg); backdrop-filter: blur(2px);
 border: 1px solid var(--line); color: var(--text); font-family: var(--font-body), sans-serif;
 font-size: 13px; padding: 8px 10px; border-radius: 4px; outline: none;
 }
 .composer__input:focus { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold-glow); }
 .composer__send, .composer__mic {
 width: 34px; border-radius: 4px; border: 1px solid var(--gold-dim);
-background: var(--panel-bg); backdrop-filter: blur(6px); color: var(--text-dim); cursor: pointer;
+background: var(--panel-bg); backdrop-filter: blur(2px); color: var(--text-dim); cursor: pointer;
 }
 .composer__send:hover, .composer__mic:hover { border-color: var(--gold); color: var(--gold); }
 .live-orb {
 width: 52px; height: 52px; border-radius: 50%;
-background: var(--panel-bg); backdrop-filter: blur(6px);
+background: var(--panel-bg); backdrop-filter: blur(2px);
 border: 1px solid var(--gold-dim); color: var(--gold-dim); font-size: 19px; cursor: pointer;
 transition: all 0.2s ease;
 }
@@ -117,7 +117,7 @@ transition: all 0.2s ease;
 .controls-row { display: flex; gap: 8px; }
 .settings {
 position: fixed; top: 0; right: -320px; width: 300px; height: 100dvh;
-background: rgba(6,6,6,0.92); backdrop-filter: blur(10px);
+background: rgba(6,6,6,0.92); backdrop-filter: blur(4px);
 border-left: 1px solid var(--gold-dim); z-index: 20; transition: right 0.25s ease-out;
 display: flex; flex-direction: column; overflow-y: auto;
 }
@@ -238,6 +238,8 @@ SETTINGS
 </div>
 </aside>
 <script>const canvas = document.getElementById('sphereCanvas');
+const wordmarkTitle = document.querySelector('.wordmark__title');
+canvas.style.filter = 'drop-shadow(0 0 18px rgba(212,175,55,0.25))'; // one cheap GPU glow instead of 460 per-particle ones
 const ctx = canvas.getContext('2d');
 function resizeCanvas() {
 canvas.width = window.innerWidth * devicePixelRatio;
@@ -245,7 +247,7 @@ canvas.height = window.innerHeight * devicePixelRatio;
 }
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
-const POINT_COUNT = 460;
+const POINT_COUNT = 260;
 let points = [];
 function buildSphere(count) {
 points = [];
@@ -349,9 +351,7 @@ const glowLevel = Math.min(1.4, current.glow + micBoost + speakBoost);
 for (const p of projected) {
 const depthFactor = Math.min(1, Math.max(0.12, p.scale - 0.5));
 const dotSize = (1.1 + depthFactor * 1.8) * devicePixelRatio;
-const alpha = Math.min(1, (0.22 + depthFactor * 0.6) * glowLevel);
-ctx.shadowBlur = 9 * devicePixelRatio * depthFactor * glowLevel;
-ctx.shadowColor = `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
+const alpha = Math.min(1, (0.28 + depthFactor * 0.68) * glowLevel);
 ctx.fillStyle = `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
 for (let i = 0; i < p.subDots; i++) {
 const jx = (Math.random() - 0.5) * dotSize * 2.2;
@@ -361,8 +361,7 @@ ctx.arc(p.sx + jx, p.sy + jy, dotSize * 0.35, 0, Math.PI * 2);
 ctx.fill();
 }
 }
-ctx.shadowBlur = 0;
-document.querySelector('.wordmark__title').style.textShadow =
+wordmarkTitle.style.textShadow =
 `0 0 ${8 + glowLevel * 10}px var(--gold-glow), 0 0 ${20 + glowLevel * 24}px var(--gold-glow), 0 0 ${50 + glowLevel * 30}px rgba(212,175,55,0.25)`;
 requestAnimationFrame(drawSphere);
 }
@@ -535,12 +534,6 @@ const last = e.results[e.results.length - 1];
 const transcript = last[0].transcript;
 const isFinal = last.isFinal;
 const state = currentState();
-if ((liveMode || wakeWordActive) && state === 'speaking') {
-stopSpeaking();
-setKevosState('listening', 'LISTENING...');
-if (isFinal && transcript.trim()) handleLiveTranscript(transcript.trim());
-return;
-}
 if (wakeWordActive && !liveMode && state === 'standby') {
 if (!isFinal) return;
 if (checkEasterEgg(transcript)) return;
@@ -691,17 +684,17 @@ async function handleLiveTranscript(transcript) {
 if (!transcript) { if (liveMode) startLiveListening(); return; }
 if (checkEasterEgg(transcript)) return;
 liveAwaitingReply = true;
+if (recognition) { try { recognition.stop(); } catch (e) {} } // mic off — your turn is over
 logLine('user', transcript);
 setKevosState('thinking', 'THINKING...');
 const result = await sendToKevos(transcript);
 logLine(result.ok ? 'system' : 'error', result.text);
 const canSpeak = result.ok && voiceOutEnabled;
 if (canSpeak) {
-setKevosState('speaking', 'SPEAKING... (say anything to interrupt)');
-restartAlwaysOnRecognition(); // keep mic live through playback so barge-in works
-await speak(result.text); // waits for the ElevenLabs audio to actually finish
+setKevosState('speaking', 'SPEAKING...');
+await speak(result.text); // mic stays off the whole time this plays
 liveAwaitingReply = false;
-if (liveMode) startLiveListening();
+if (liveMode) startLiveListening(); // mic back on now that KEVOS is done
 else if (wakeWordActive) enterStandby();
 else setKevosState('idle');
 } else {
@@ -718,7 +711,7 @@ else {
 ensureMicAnalyser();
 liveMode = true;
 liveOrb.classList.add('active');
-logLine('system', 'Live conversation started — talk anytime, interrupt anytime.');
+logLine('system', 'Live conversation started — your mic mutes automatically while KEVOS is replying.');
 startLiveListening();
 }
 });
